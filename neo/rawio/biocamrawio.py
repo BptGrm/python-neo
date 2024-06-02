@@ -200,14 +200,14 @@ def open_biocam_file_header(filename):
         scale_factor = experiment_settings["ValueConverter"]["ScaleFactor"]
         sampling_rate = experiment_settings["TimeConverter"]["FrameRate"]
 
-        if 'EventsBasedRawRanges' in experiment_settings['DataSettings']:
+        if "EventsBasedRawRanges" in experiment_settings["DataSettings"]:
             for key in rf:
                 if key[:5] == "Well_":
                     num_channels = len(rf[key]["StoredChIdxs"])
-                    num_frames = np.array(rf['TOC'])[-1][-1]
+                    num_frames = np.array(rf["TOC"])[-1][-1]
                     break
             read_function = readHDF5t_brw4_event_based
-        
+
         else:
             for key in rf:
                 if key[:5] == "Well_":
@@ -228,7 +228,6 @@ def open_biocam_file_header(filename):
 
         gain = scale_factor * (max_uv - min_uv) / (max_digital - min_digital)
         offset = min_uv
-        
 
         return dict(
             file_handle=rf,
@@ -241,10 +240,11 @@ def open_biocam_file_header(filename):
             offset=offset,
         )
 
+
 def GenerateSyntheticNoise_arr(file, wellID, startFrame, endFrame, numFrames, n_channels):
     # collect the TOCs
-    toc = np.array(file['TOC'])
-    noiseToc = np.array(file[wellID + '/NoiseTOC'])
+    toc = np.array(file["TOC"])
+    noiseToc = np.array(file[wellID + "/NoiseTOC"])
     # from the given start position in frames, localize the corresponding noise positions
     # using the TOC
     tocStartIdx = np.searchsorted(toc[:, 1], startFrame)
@@ -264,9 +264,9 @@ def GenerateSyntheticNoise_arr(file, wellID, startFrame, endFrame, numFrames, n_
                 break
 
     # obtain the noise info at the start position
-    noiseChIdxs = file[wellID + '/NoiseChIdxs'][noiseStartPosition:noiseEndPosition]
-    noiseMean = file[wellID + '/NoiseMean'][noiseStartPosition:noiseEndPosition]
-    noiseStdDev = file[wellID + '/NoiseStdDev'][noiseStartPosition:noiseEndPosition]
+    noiseChIdxs = file[wellID + "/NoiseChIdxs"][noiseStartPosition:noiseEndPosition]
+    noiseMean = file[wellID + "/NoiseMean"][noiseStartPosition:noiseEndPosition]
+    noiseStdDev = file[wellID + "/NoiseStdDev"][noiseStartPosition:noiseEndPosition]
     noiseLength = noiseEndPosition - noiseStartPosition
 
     noiseInfo = {}
@@ -287,59 +287,64 @@ def GenerateSyntheticNoise_arr(file, wellID, startFrame, endFrame, numFrames, n_
 
     for chIdx in range(n_channels):
         if chIdx in noiseInfo:
-            arr[:,chIdx] = np.array(np.random.normal(noiseInfo[chIdx][0], noiseInfo[chIdx][1],numFrames), dtype=np.int16)
+            arr[:, chIdx] = np.array(
+                np.random.normal(noiseInfo[chIdx][0], noiseInfo[chIdx][1], numFrames), dtype=np.int16
+            )
         else:
-            arr[:,chIdx] = np.array(np.random.normal(dataMean, dataStdDev, numFrames),dtype=np.int16)
+            arr[:, chIdx] = np.array(np.random.normal(dataMean, dataStdDev, numFrames), dtype=np.int16)
 
     return arr
 
+
 def DecodeEventBasedRawData_arr(rf, wellID, t0, t1, nch):
 
-    toc = np.array(rf['TOC']) # Main table of contents
-    eventsToc = np.array(rf[wellID + '/EventsBasedSparseRawTOC']) # Events table of contents
+    toc = np.array(rf["TOC"])  # Main table of contents
+    eventsToc = np.array(rf[wellID + "/EventsBasedSparseRawTOC"])  # Events table of contents
 
     # Only select the chunks in the desired range
     tocStartIdx = np.searchsorted(toc[:, 1], t0)
-    tocEndIdx = min(np.searchsorted(toc[:, 1], t1, side='right') + 1, len(toc) - 1)
+    tocEndIdx = min(np.searchsorted(toc[:, 1], t1, side="right") + 1, len(toc) - 1)
     eventsStartPosition = eventsToc[tocStartIdx]
     eventsEndPosition = eventsToc[tocEndIdx]
 
     numFrames = t1 - t0
 
-    binaryData = rf[wellID + '/EventsBasedSparseRaw'][eventsStartPosition:eventsEndPosition]
+    binaryData = rf[wellID + "/EventsBasedSparseRaw"][eventsStartPosition:eventsEndPosition]
     binaryDataLength = len(binaryData)
 
     synth = True
 
     if synth:
         arr = GenerateSyntheticNoise_arr(rf, wellID, t0, t1, numFrames, nch)
-    
+
     else:
         arr = np.zeros((numFrames, nch))
 
     pos = 0
     while pos < binaryDataLength:
-        chIdx = int.from_bytes(binaryData[pos:pos + 4], byteorder='little', signed=True)
+        chIdx = int.from_bytes(binaryData[pos : pos + 4], byteorder="little", signed=True)
         pos += 4
-        chDataLength = int.from_bytes(binaryData[pos:pos + 4], byteorder='little', signed=True)
+        chDataLength = int.from_bytes(binaryData[pos : pos + 4], byteorder="little", signed=True)
         pos += 4
         chDataPos = pos
         while pos < chDataPos + chDataLength:
-            fromInclusive = int.from_bytes(binaryData[pos:pos + 8], byteorder='little', signed=True)
+            fromInclusive = int.from_bytes(binaryData[pos : pos + 8], byteorder="little", signed=True)
             pos += 8
-            toExclusive = int.from_bytes(binaryData[pos:pos + 8], byteorder='little', signed=True)
+            toExclusive = int.from_bytes(binaryData[pos : pos + 8], byteorder="little", signed=True)
             pos += 8
             rangeDataPos = pos
             for j in range(fromInclusive, toExclusive):
-                if j >= t0 + numFrames: 
+                if j >= t0 + numFrames:
                     break
                 if j >= t0:
-                    arr[j - t0,chIdx] = int.from_bytes(
-                    binaryData[rangeDataPos:rangeDataPos + 2], byteorder='little', signed=True)
+                    arr[j - t0, chIdx] = int.from_bytes(
+                        binaryData[rangeDataPos : rangeDataPos + 2], byteorder="little", signed=True
+                    )
                 rangeDataPos += 2
             pos += (toExclusive - fromInclusive) * 2
 
     return arr
+
 
 def readHDF5t_100(rf, t0, t1, nch):
     return rf["3BData/Raw"][t0:t1]
@@ -361,7 +366,8 @@ def readHDF5t_brw4(rf, t0, t1, nch):
     for key in rf:
         if key[:5] == "Well_":
             return rf[key]["Raw"][nch * t0 : nch * t1].reshape((t1 - t0, nch), order="C")
-        
+
+
 def readHDF5t_brw4_event_based(rf, t0, t1, nch):
     for key in rf:
         if key[:5] == "Well_":
